@@ -1,0 +1,32 @@
+{
+  "name": "cognitive-imprint",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:push": "npx drizzle-kit push",
+    "db:studio": "npx drizzle-kit studio"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18",
+    "@neondatabase/serverless": "^0.9.3",
+    "drizzle-orm": "^0.30.10",
+    "@anthropic-ai/sdk": "^0.24.3",
+    "rss-parser": "^3.13.0",
+    "date-fns": "^3.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8",
+    "autoprefixer": "^10",
+    "drizzle-kit": "^0.21.4"
+  }
+}

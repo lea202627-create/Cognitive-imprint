@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #1C1917;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #44403C;
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #78716C;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-claude-accent hover:bg-claude-accent-hover text-white text-sm font-medium px-4 py-2 rounded-btn transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    @apply bg-claude-surface hover:bg-claude-hover text-claude-text text-sm font-medium px-4 py-2 rounded-btn border border-claude-border transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  
+  .card {
+    @apply bg-claude-surface border border-claude-border rounded-bubble p-4;
+  }
+  
+  .input {
+    @apply bg-claude-surface border border-claude-border rounded-btn px-3 py-2 text-sm text-claude-text placeholder-claude-faint focus:outline-none focus:border-claude-muted transition-colors w-full;
+  }
+  
+  .label {
+    @apply text-xs text-claude-muted font-medium uppercase tracking-wide;
+  }
+  
+  .score-bar-track {
+    @apply h-1.5 bg-claude-hover rounded-full overflow-hidden;
+  }
+  
+  .score-bar-fill {
+    @apply h-full rounded-full transition-all duration-700;
+  }
+}

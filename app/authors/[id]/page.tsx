@@ -248,8 +248,11 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
               className="btn-primary"
               onClick={generateImprint}
               disabled={analyzing || articles.length === 0}
+              title="Aggregates the cognitive features of every article in the corpus — not just recent ones"
             >
-              {analyzing ? 'Analyzing...' : 'Generate imprint'}
+              {analyzing
+                ? `Analyzing all ${articles.length} articles...`
+                : `Generate imprint (all ${articles.length} articles)`}
             </button>
           </div>
         </div>

@@ -67,6 +67,7 @@ RSS 源 ──────────┤                                       
 - **LLM 输出解析**：`parseJsonResponse` 先剥 markdown code fence，再截取首个 `{` 到末个 `}`（容忍模型前后加话），最后 `JSON.parse`；失败直接抛错（fail fast），不静默重试。
 - **逐篇输入截断 6000 字符**：超长文章只分析开头部分，是已知取舍。
 - **模型**：默认 `anthropic/claude-sonnet-4`（OpenRouter ID），集中写在 `lib/analyzer.ts` 的 `MODEL` 常量，可用 `OPENROUTER_MODEL` 环境变量覆盖为任意 OpenRouter 模型。
+- **输出语言**：分析文字由 `ANALYSIS_LANGUAGE` 控制（默认 `zh`），prompt 中的 `LANGUAGE_RULES` 同时强制证据摘录保持原语言；`confidenceNote` 为代码生成，单独做了中英双语。
 - **数据库连接**：Supabase transaction pooler（6543 端口）+ postgres.js，必须 `prepare: false`（pooler 不支持 prepared statements）、`max: 1`（serverless 每实例单连接）。
 
 ## 自动跟踪（v1.1）

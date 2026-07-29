@@ -8,6 +8,22 @@ import { DocumentFeatures, ImprintReport, Article } from '@/types';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = process.env.OPENROUTER_MODEL ?? 'anthropic/claude-sonnet-4';
 
+// Output language for the analytical text. Verbatim evidence quotes are NEVER
+// translated — a translated quote is no longer evidence (see constitution §2).
+// Override with ANALYSIS_LANGUAGE ('zh' | 'en' | any language name).
+const LANG_NAMES: Record<string, string> = {
+  zh: 'Simplified Chinese (简体中文)',
+  en: 'English',
+};
+const RAW_LANG = process.env.ANALYSIS_LANGUAGE ?? 'zh';
+const ANALYSIS_LANGUAGE = LANG_NAMES[RAW_LANG] ?? RAW_LANG;
+
+const LANGUAGE_RULES = `
+OUTPUT LANGUAGE:
+- Write ALL analytical text (topics, claims, patterns, explanations, summaries) in ${ANALYSIS_LANGUAGE}.
+- EXCEPTION: verbatim excerpts and evidence quotes must stay in the text's ORIGINAL language, word for word. Never translate a quote — a translated quote is no longer evidence.
+- Keep the JSON keys exactly as specified (in English).`;
+
 async function callModel(prompt: string, maxTokens: number): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('OPENROUTER_API_KEY is not set');
@@ -79,6 +95,7 @@ STRICT RULES:
 - Separate: what is present in text / what is a plausible inference / what is uncertain
 - Every claim must be grounded in the text
 - Focus on COGNITIVE patterns, not content summary
+${LANGUAGE_RULES}
 
 TEXT METADATA:
 Title: ${title}
@@ -137,18 +154,25 @@ export async function generateImprintReport(
     end: dates[dates.length - 1] ?? 'unknown',
   };
 
-  // Confidence assessment
+  // Confidence assessment (computed here, not by the LLM — localized to match)
+  const zh = RAW_LANG === 'zh';
   let confidence: 'low' | 'moderate' | 'high';
   let confidenceNote: string;
   if (docCount < 5 || totalWords < 3000) {
     confidence = 'low';
-    confidenceNote = `Only ${docCount} documents (${totalWords} words). Patterns identified here are preliminary and may not reflect stable habits.`;
+    confidenceNote = zh
+      ? `语料仅 ${docCount} 篇（${totalWords} 词）。此处识别的模式只是初步观察，未必反映稳定的认知习惯。`
+      : `Only ${docCount} documents (${totalWords} words). Patterns identified here are preliminary and may not reflect stable habits.`;
   } else if (docCount < 15 || totalWords < 15000) {
     confidence = 'moderate';
-    confidenceNote = `${docCount} documents (${totalWords} words). Patterns are emerging but corpus is still limited.`;
+    confidenceNote = zh
+      ? `语料 ${docCount} 篇（${totalWords} 词）。模式正在显现，但语料规模仍有限。`
+      : `${docCount} documents (${totalWords} words). Patterns are emerging but corpus is still limited.`;
   } else {
     confidence = 'high';
-    confidenceNote = `${docCount} documents (${totalWords} words) across a meaningful time range.`;
+    confidenceNote = zh
+      ? `语料 ${docCount} 篇（${totalWords} 词），覆盖了有意义的时间跨度。`
+      : `${docCount} documents (${totalWords} words) across a meaningful time range.`;
   }
 
   // Aggregate all extracted features
@@ -170,6 +194,7 @@ STRICT RULES:
 - Every claim MUST reference specific text evidence from the excerpts provided
 - Analyze cognitive habits separately from style and topic preference
 - Be intellectually honest about limitations
+${LANGUAGE_RULES}
 
 SCORING ANCHORS:
 - Compression Strength 10/10: Paul Graham — maximum insight per word, each sentence earns its place

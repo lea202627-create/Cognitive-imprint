@@ -41,6 +41,10 @@ npm run db:studio  # Drizzle Studio (localhost:4983)
 
 `lib/fetcher.ts` 的 `parseFeed` 支持 RSS 2.0、RSS 1.0/RDF（`<item>` 带属性、`dc:date`）和 Atom（`<entry>`、href 属性取链接、优先 `rel="alternate"`、`published` 缺失时回落 `updated`）。喂进非 feed 的 URL 会**显式抛错**，不静默返回"没有新文章"。
 
+## 分析输出语言
+
+分析文字默认输出**简体中文**（`ANALYSIS_LANGUAGE` 可改，见 `lib/analyzer.ts` 的 `LANGUAGE_RULES`）。**原文证据摘录永远保持原语言不翻译**——翻译过的引文不再是证据，这条与伦理红线同级，不得放宽。`confidenceNote` 在 TS 代码里生成，改语言逻辑时要同步 `zh` 分支。
+
 ## 已知限制
 
 - 文章发布时间依赖 feed 里的日期字段；全部缺失时报告的 date range 显示 unknown。

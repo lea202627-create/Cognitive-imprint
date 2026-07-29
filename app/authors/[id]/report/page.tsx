@@ -136,7 +136,8 @@ export default function ReportPage({ params }: { params: { id: string } }) {
           <div>
             <h1 className="text-xl font-medium text-claude-text">Cognitive Imprint</h1>
             <p className="text-xs text-claude-faint mt-1">
-              {report.documentCount} docs · {report.totalWordCount.toLocaleString()} words ·{' '}
+              Aggregated from all {report.documentCount} articles in the corpus at generation time
+              ({report.totalWordCount.toLocaleString()} words) ·{' '}
               {format(new Date(report.generatedAt), 'MMM d, yyyy')}
             </p>
           </div>

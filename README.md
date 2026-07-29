@@ -52,6 +52,7 @@ Copy `.env.example` to `.env.local` and fill in the two required values:
 | `OPENROUTER_API_KEY` | yes | OpenRouter API key (starts with `sk-or-v1-`) |
 | `OPENROUTER_MODEL` | no | Model id to use. Defaults to `anthropic/claude-sonnet-4` |
 | `OPENROUTER_SITE_URL` | no | Your deployed URL, sent to OpenRouter as attribution |
+| `ANALYSIS_LANGUAGE` | no | Language of the analytical text in reports. Defaults to `zh` (Simplified Chinese); evidence quotes always stay in the source language |
 | `CRON_SECRET` | no | Protects the auto-tracking endpoint `GET /api/track`; on Vercel, set it and Vercel Cron sends it automatically |
 | `BASIC_AUTH_PASSWORD` | **yes in production** | Enables the HTTP Basic Auth gate (`middleware.ts`). Leave empty locally to skip the login prompt |
 | `BASIC_AUTH_USER` | no | Username for the gate. Defaults to `admin` |

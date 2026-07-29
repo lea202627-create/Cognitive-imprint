@@ -40,6 +40,7 @@ RSS 源 ──────────┤                                       
 | `lib/tracker.ts` | 自动跟踪管道：检查 feed → 去重 → 自动抓取分析入库 | 复用 fetcher + analyzer；每作者每轮上限 5 篇、cron 每轮总上限 8 篇（适配 60s 超时） |
 | `lib/analyzer.ts` | 两段式 LLM 分析管道 | 唯一与 LLM（OpenRouter）交互的模块；`callModel` 为纯 fetch 传输层，模型 ID 与 prompt 均在此文件；prompt 的伦理红线见宪法第二节 |
 | `lib/export.ts` | 报告转 Markdown | 纯格式化，无业务逻辑 |
+| `lib/notify.ts` | 自动跟踪的邮件通知（Resend，纯 fetch） | 仅 cron 路径调用；未配 `RESEND_API_KEY`/`NOTIFY_EMAIL` 时静默跳过；通知失败不影响跟踪本身 |
 | `lib/schema.ts` / `lib/db.ts` | Drizzle schema 与连接 | schema 变更走 `npm run db:push` |
 | `types/index.ts` | 全部共享类型 | 类型是 LLM JSON 输出的契约，与 analyzer 的 prompt schema 必须同步修改 |
 | `middleware.ts` | 全站 HTTP Basic Auth 门禁 | `BASIC_AUTH_PASSWORD` 未设置则不启用；`GET /api/track` 凭 `Bearer $CRON_SECRET` 单独放行 |
@@ -72,7 +73,7 @@ RSS 源 ──────────┤                                       
 
 ## 自动跟踪（v1.1）
 
-- **入口**：`app/api/track/route.ts`。GET 供 Vercel Cron 调用（`vercel.json` 配置为每日 02:00 UTC），遍历全部作者；POST 供作者页"Auto-import new articles"按钮调用（单作者）。
+- **入口**：`app/api/track/route.ts`。GET 供 Vercel Cron 调用（`vercel.json` 当前配置为**每月 1 日 02:00 UTC**，改频率＝改 cron 表达式后重新部署；`AUTO_TRACK=off` 可在不改代码的情况下暂停定时跑），遍历全部作者；POST 供作者页导入面板调用（单作者）。
 - **鉴权**：设置了 `CRON_SECRET` 环境变量时，GET 要求 `Authorization: Bearer <CRON_SECRET>`（Vercel Cron 自动携带）；未设置则不校验（本地开发）。
 - **限量**：每作者每轮最多 5 篇、cron 每轮总计最多 8 篇（`lib/tracker.ts` 中的常量），超出部分下一轮自动补上——这是对 Vercel 60s 超时的适配，不是数据截断。
 - **导入范围（作者页）**：三种模式——最新一批 / 整站全部 / 指定时间段。"全部"与"时间段"由前端循环调用 `POST /api/track`（每次一批）直到 `skipped` 归零，从而在不碰 60s 超时的前提下导入任意数量；整批全部失败时停止并显示错误，避免死循环。时间段过滤在 `trackAuthor` 内做（`since`/`until`，含当天），feed 未提供日期的文章无法参与区间匹配，会被排除并计数返回（`undatedExcluded`），可用"全部"模式补齐。

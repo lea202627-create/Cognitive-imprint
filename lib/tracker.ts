@@ -5,7 +5,7 @@
 import { db } from '@/lib/db';
 import { authors, articles } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
-import { fetchFeedItems, fetchArticleText, countWords } from '@/lib/fetcher';
+import { fetchFeedItems, fetchArticleTextWithFallback, countWords } from '@/lib/fetcher';
 import { extractDocumentFeatures } from '@/lib/analyzer';
 
 // Caps keep a single run inside Vercel's 60s function timeout.
@@ -94,7 +94,7 @@ export async function trackAuthor(
 
   for (const item of toIngest) {
     try {
-      const rawText = await fetchArticleText(item.url);
+      const rawText = await fetchArticleTextWithFallback(item);
       const wordCount = countWords(rawText);
       const extractedFeatures = await extractDocumentFeatures(
         item.title,

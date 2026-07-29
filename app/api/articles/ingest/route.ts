@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { articles } from '@/lib/schema';
-import { fetchArticleText, countWords } from '@/lib/fetcher';
+import { fetchArticleTextWithFallback, countWords } from '@/lib/fetcher';
 import { extractDocumentFeatures } from '@/lib/analyzer';
 import { NewArticle } from '@/types';
 
@@ -18,8 +18,8 @@ export async function POST(req: Request) {
 
     for (const item of items) {
       try {
-        // 1. Fetch article text
-        const rawText = await fetchArticleText(item.url);
+        // 1. Fetch article text (falls back to feed-carried body if blocked)
+        const rawText = await fetchArticleTextWithFallback(item);
         const wordCount = countWords(rawText);
 
         // 2. Extract cognitive features via LLM

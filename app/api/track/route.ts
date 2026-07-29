@@ -8,6 +8,7 @@ import { db } from '@/lib/db';
 import { authors } from '@/lib/schema';
 import { eq } from 'drizzle-orm';
 import { trackAuthor, trackAllAuthors } from '@/lib/tracker';
+import { sendUpdateEmail } from '@/lib/notify';
 
 export const maxDuration = 60;
 
@@ -17,9 +18,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Kill switch: set AUTO_TRACK=off to pause scheduled tracking without
+  // touching vercel.json. Manual imports from the UI keep working.
+  if (process.env.AUTO_TRACK === 'off') {
+    return NextResponse.json({ skipped: 'auto-tracking disabled (AUTO_TRACK=off)' });
+  }
+
   try {
     const results = await trackAllAuthors();
-    return NextResponse.json({ ranAt: new Date().toISOString(), results });
+    const emailStatus = await sendUpdateEmail(results);
+    return NextResponse.json({ ranAt: new Date().toISOString(), email: emailStatus, results });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

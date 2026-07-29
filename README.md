@@ -56,6 +56,9 @@ Copy `.env.example` to `.env.local` and fill in the two required values:
 | `CRON_SECRET` | no | Protects the auto-tracking endpoint `GET /api/track`; on Vercel, set it and Vercel Cron sends it automatically |
 | `BASIC_AUTH_PASSWORD` | **yes in production** | Enables the HTTP Basic Auth gate (`middleware.ts`). Leave empty locally to skip the login prompt |
 | `BASIC_AUTH_USER` | no | Username for the gate. Defaults to `admin` |
+| `AUTO_TRACK` | no | Set to `off` to pause scheduled auto-tracking; manual imports keep working |
+| `RESEND_API_KEY` | no | Resend API key — enables email notification when auto-tracking finds updates |
+| `NOTIFY_EMAIL` | no | Recipient for update notifications (must be set together with `RESEND_API_KEY`) |
 
 ### Getting DATABASE_URL (Supabase)
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) and create a project
@@ -224,7 +227,7 @@ cognitive-imprint/
 
 ## Auto-tracking
 
-- **Vercel Cron** (configured in `vercel.json`) calls `GET /api/track` daily at 02:00 UTC: every author's feed is checked, new articles are deduped (by URL/GUID), fetched, analyzed, and stored — capped at 5 articles per author and 8 per run to stay inside the 60s serverless limit; the remainder is picked up on the next run.
+- **Vercel Cron** (configured in `vercel.json`) calls `GET /api/track` monthly (02:00 UTC on the 1st): every author's feed is checked, new articles are deduped (by URL/GUID), fetched, analyzed, and stored — capped at 5 articles per author and 8 per run to stay inside the 60s serverless limit; the remainder is picked up on the next run.
 - **Manual trigger**: the **Import** panel on the author page runs the same pipeline for one author with a chosen scope — latest batch, everything, or a date range (`since`/`until`, inclusive; undated items are excluded from ranges and reported). "Everything" and range imports loop batch-by-batch from the client until done. Or hit the endpoint directly:
 
 ```bash
@@ -232,6 +235,8 @@ curl -X POST http://localhost:3000/api/track -H 'Content-Type: application/json'
 ```
 
 - Set `CRON_SECRET` in production to prevent strangers from triggering the cron endpoint.
+- **Email notification**: when a scheduled run imports new articles and `RESEND_API_KEY` + `NOTIFY_EMAIL` are set, a summary email (per-author list of new pieces) is sent via Resend. Failures never break the tracking run.
+- **Pause switch**: set `AUTO_TRACK=off` in Vercel env to stop scheduled runs entirely; the Import panel in the UI is unaffected. To change the cadence, edit the cron expression in `vercel.json` and redeploy.
 
 ---
 

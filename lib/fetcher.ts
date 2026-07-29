@@ -42,12 +42,23 @@ function parseRssItem(block: string): NewArticle | null {
 
   if (!link) return null;
 
+  const body =
+    extractTag(block, 'content:encoded') ?? extractTag(block, 'description');
+
   return {
     title: decodeEntities(stripCdata(title)),
     url: decodeEntities(link.trim()),
     guid: decodeEntities(guid.trim()),
     publishedAt: parseDate(pubDate),
+    feedContent: feedBodyToText(body),
   };
+}
+
+// Feed-carried bodies arrive as escaped/CDATA-wrapped HTML; reduce to plain text.
+function feedBodyToText(raw: string | null): string | null {
+  if (!raw) return null;
+  const text = extractReadableText(decodeEntities(stripCdata(raw)));
+  return text.length > 0 ? text : null;
 }
 
 function parseAtomEntry(block: string): NewArticle | null {
@@ -59,11 +70,14 @@ function parseAtomEntry(block: string): NewArticle | null {
 
   if (!link) return null;
 
+  const body = extractTag(block, 'content') ?? extractTag(block, 'summary');
+
   return {
     title: decodeEntities(stripCdata(title)),
     url: decodeEntities(link.trim()),
     guid: decodeEntities((id ?? link).trim()),
     publishedAt: parseDate(date),
+    feedContent: feedBodyToText(body),
   };
 }
 
@@ -222,8 +236,30 @@ export async function resolveFeedUrl(input: string): Promise<ResolvedFeed> {
 
   throw new Error(
     `Could not find a feed for ${url}. Tried the page's <link rel="alternate"> tags and ` +
-      `${COMMON_FEED_PATHS.join(', ')}. If you know the feed address, paste it directly.`
+      `${COMMON_FEED_PATHS.join(', ')}. If you know the feed address, paste it directly. ` +
+      `Platforms like Zhihu or WeChat publish no feeds at all — for those, use a bridge ` +
+      `service (e.g. an RSSHub instance) to generate a feed URL and paste that here.`
   );
+}
+
+// Fetch the article page; fall back to the feed-carried body when the page is
+// unreachable (anti-bot 403s — Zhihu, WeChat) or returns only a thin challenge
+// shell while the feed carried something fuller.
+export async function fetchArticleTextWithFallback(item: NewArticle): Promise<string> {
+  try {
+    const pageText = await fetchArticleText(item.url);
+    if (
+      item.feedContent &&
+      countWords(pageText) < 30 &&
+      item.feedContent.length > pageText.length
+    ) {
+      return item.feedContent;
+    }
+    return pageText;
+  } catch (e) {
+    if (item.feedContent) return item.feedContent;
+    throw e;
+  }
 }
 
 export async function fetchArticleText(url: string): Promise<string> {
@@ -268,6 +304,14 @@ function extractReadableText(html: string): string {
   return text;
 }
 
+// CJK text has no word-separating spaces — a whitespace split undercounts a
+// 2000-character Chinese essay as a handful of "words", which wrecks the
+// corpus-size confidence thresholds. Count CJK characters individually and
+// everything else by whitespace tokens.
+const CJK = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]/g;
+
 export function countWords(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length;
+  const cjkChars = (text.match(CJK) ?? []).length;
+  const nonCjkTokens = text.replace(CJK, ' ').split(/\s+/).filter(Boolean).length;
+  return cjkChars + nonCjkTokens;
 }

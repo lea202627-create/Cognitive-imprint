@@ -103,4 +103,8 @@ export interface NewArticle {
   url: string;
   publishedAt: string | null;
   guid: string;
+  /** Plain text the feed itself carries (description / content:encoded).
+   *  Fallback corpus source when the article page can't be fetched —
+   *  e.g. Zhihu/WeChat pages behind anti-bot walls, reached via bridge feeds. */
+  feedContent?: string | null;
 }

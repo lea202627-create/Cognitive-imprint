@@ -25,19 +25,30 @@ export interface TrackAuthorResult {
   newFound: number;
   ingested: TrackItemResult[];
   skipped: number; // found but over the per-run cap; picked up next run
+  undatedExcluded: number; // items dropped from a date-range import because the feed has no date for them
   error?: string;  // feed-level failure
+}
+
+export interface TrackOptions {
+  maxArticles?: number;
+  /** Only import items published on/after this date (YYYY-MM-DD or ISO). */
+  since?: string | null;
+  /** Only import items published on/before this date (inclusive). */
+  until?: string | null;
 }
 
 export async function trackAuthor(
   author: { id: number; name: string; feedUrl: string },
-  maxArticles: number = MAX_ARTICLES_PER_AUTHOR,
+  opts: TrackOptions = {},
 ): Promise<TrackAuthorResult> {
+  const maxArticles = opts.maxArticles ?? MAX_ARTICLES_PER_AUTHOR;
   const result: TrackAuthorResult = {
     authorId: author.id,
     authorName: author.name,
     newFound: 0,
     ingested: [],
     skipped: 0,
+    undatedExcluded: 0,
   };
 
   let feedItems;
@@ -56,9 +67,26 @@ export async function trackAuthor(
   const existingUrls = new Set(existing.map(e => e.url));
   const existingGuids = new Set(existing.map(e => e.guid).filter(Boolean));
 
-  const newItems = feedItems.filter(
+  let newItems = feedItems.filter(
     item => !existingUrls.has(item.url) && !existingGuids.has(item.guid)
   );
+
+  // Optional date-range filter. Items the feed gives no date for cannot be
+  // matched against a range — they are excluded and counted, not silently kept.
+  if (opts.since || opts.until) {
+    const sinceT = opts.since ? Date.parse(opts.since) : -Infinity;
+    // +1 day - 1ms so "until 2026-07-28" includes the whole of that day.
+    const untilT = opts.until ? Date.parse(opts.until) + 86_399_999 : Infinity;
+
+    newItems = newItems.filter(item => {
+      if (!item.publishedAt) {
+        result.undatedExcluded++;
+        return false;
+      }
+      const t = Date.parse(item.publishedAt);
+      return t >= sinceT && t <= untilT;
+    });
+  }
 
   result.newFound = newItems.length;
   const toIngest = newItems.slice(0, maxArticles);
@@ -115,7 +143,9 @@ export async function trackAllAuthors(): Promise<TrackAuthorResult[]> {
     const remaining = MAX_ARTICLES_PER_CRON_RUN - ingestedTotal;
     if (remaining <= 0) break;
 
-    const r = await trackAuthor(author, Math.min(MAX_ARTICLES_PER_AUTHOR, remaining));
+    const r = await trackAuthor(author, {
+      maxArticles: Math.min(MAX_ARTICLES_PER_AUTHOR, remaining),
+    });
     ingestedTotal += r.ingested.length;
     results.push(r);
   }

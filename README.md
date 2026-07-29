@@ -25,7 +25,7 @@ The whole app sits behind HTTP Basic Auth (`middleware.ts`), because every API r
 ## What it does
 
 1. You add an author by pasting their **website address** — the feed is discovered automatically (a direct RSS/RDF/Atom URL works too)
-2. New articles are picked up automatically — a daily cron (or the one-click **Auto-import** button) fetches, cleans, and analyzes each new article with Claude; a manual check-and-select flow also exists as a fallback
+2. New articles are picked up automatically — a daily cron keeps the corpus fresh, and the author page offers three import scopes: **latest batch**, **everything in the feed**, or a **date range** (batched client-side around the serverless timeout); a manual check-and-select flow also exists as a fallback
 3. The author page shows a **Recent focus** card — what the author has been thinking about lately (topics + core claims from the latest analyzed articles)
 4. You can generate a Cognitive Imprint report at any time — a versioned snapshot of the author's cognitive patterns across the full corpus
 5. Reports can be exported as Markdown
@@ -224,7 +224,7 @@ cognitive-imprint/
 ## Auto-tracking
 
 - **Vercel Cron** (configured in `vercel.json`) calls `GET /api/track` daily at 02:00 UTC: every author's feed is checked, new articles are deduped (by URL/GUID), fetched, analyzed, and stored — capped at 5 articles per author and 8 per run to stay inside the 60s serverless limit; the remainder is picked up on the next run.
-- **Manual trigger**: the **Auto-import new articles** button on the author page runs the same pipeline for one author, or hit the endpoint directly:
+- **Manual trigger**: the **Import** panel on the author page runs the same pipeline for one author with a chosen scope — latest batch, everything, or a date range (`since`/`until`, inclusive; undated items are excluded from ranges and reported). "Everything" and range imports loop batch-by-batch from the client until done. Or hit the endpoint directly:
 
 ```bash
 curl -X POST http://localhost:3000/api/track -H 'Content-Type: application/json' -d '{"authorId": 1}'

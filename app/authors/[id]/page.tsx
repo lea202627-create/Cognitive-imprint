@@ -27,10 +27,16 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
 
   // Auto-track state
   const [tracking, setTracking] = useState(false);
+  const [importMode, setImportMode] = useState<'latest' | 'all' | 'range'>('latest');
+  const [sinceDate, setSinceDate] = useState('');
+  const [untilDate, setUntilDate] = useState('');
+  const [trackProgress, setTrackProgress] = useState<string | null>(null);
   const [trackResult, setTrackResult] = useState<{
-    newFound: number;
-    ingested: { title: string; success: boolean; error?: string }[];
-    skipped: number;
+    imported: { title: string; success: boolean; error?: string }[];
+    remaining: number;
+    undatedExcluded: number;
+    batches: number;
+    stoppedOnErrors: boolean;
     error?: string;
   } | null>(null);
 
@@ -106,22 +112,69 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
   async function autoTrack() {
     setTracking(true);
     setTrackResult(null);
+    setTrackProgress(null);
     setNewItems(null);
     setIngestResults(null);
+
+    const body: Record<string, unknown> = { authorId };
+    if (importMode === 'range') {
+      if (sinceDate) body.since = sinceDate;
+      if (untilDate) body.until = untilDate;
+    }
+
+    // "latest" = one batch. "all" / "range" = keep calling until the feed is
+    // drained — each request ingests at most one batch (serverless timeout).
+    const loop = importMode !== 'latest';
+    const imported: { title: string; success: boolean; error?: string }[] = [];
+    let remaining = 0;
+    let undatedExcluded = 0;
+    let batches = 0;
+    let stoppedOnErrors = false;
+
     try {
-      const res = await fetch('/api/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ authorId }),
-      });
-      const data = await res.json();
-      if (data.error && !data.ingested) throw new Error(data.error);
-      setTrackResult(data);
+      for (;;) {
+        batches++;
+        const res = await fetch('/api/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.error && !data.ingested) throw new Error(data.error);
+
+        imported.push(...data.ingested);
+        remaining = data.skipped;
+        undatedExcluded = data.undatedExcluded ?? 0;
+
+        const okCount = imported.filter(r => r.success).length;
+        setTrackProgress(
+          `Batch ${batches} done — ${okCount} imported, ${remaining} remaining...`
+        );
+
+        if (!loop || remaining === 0) break;
+        // Failed items stay out of the DB and would be retried forever;
+        // if a whole batch produced no successes, stop and surface the errors.
+        if (!data.ingested.some((r: { success: boolean }) => r.success)) {
+          stoppedOnErrors = true;
+          break;
+        }
+        await loadAll(); // keep the corpus list filling in as batches land
+      }
+
+      setTrackResult({ imported, remaining, undatedExcluded, batches, stoppedOnErrors });
       await loadAll();
     } catch (e) {
-      setTrackResult({ newFound: 0, ingested: [], skipped: 0, error: String(e) });
+      setTrackResult({
+        imported,
+        remaining,
+        undatedExcluded,
+        batches,
+        stoppedOnErrors: false,
+        error: String(e),
+      });
     } finally {
       setTracking(false);
+      setTrackProgress(null);
     }
   }
 
@@ -261,50 +314,126 @@ export default function AuthorPage({ params }: { params: { id: string } }) {
         );
       })()}
 
-      {/* Check for updates */}
+      {/* Import */}
       <div className="mb-6">
-        <div className="flex gap-2">
-          <button
-            className="btn-primary flex-1"
-            onClick={autoTrack}
-            disabled={tracking || checking}
-          >
-            {tracking ? 'Tracking: fetching & analyzing...' : 'Auto-import new articles'}
-          </button>
-          <button
-            className="btn-secondary flex-1"
-            onClick={checkForUpdates}
-            disabled={checking || tracking}
-          >
-            {checking ? 'Checking feed...' : 'Check manually'}
-          </button>
+        <div className="card space-y-3">
+          <p className="label">Import articles</p>
+          <div className="flex gap-1.5">
+            {([
+              ['latest', 'Latest batch'],
+              ['all', 'Everything'],
+              ['range', 'Date range'],
+            ] as const).map(([mode, labelText]) => (
+              <button
+                key={mode}
+                onClick={() => setImportMode(mode)}
+                disabled={tracking}
+                className={`text-xs px-2.5 py-1.5 rounded border transition-colors ${
+                  importMode === mode
+                    ? 'border-claude-accent text-claude-accent bg-claude-hover'
+                    : 'border-claude-border text-claude-muted hover:text-claude-text'
+                }`}
+              >
+                {labelText}
+              </button>
+            ))}
+          </div>
+
+          {importMode === 'range' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                className="input flex-1"
+                value={sinceDate}
+                onChange={e => setSinceDate(e.target.value)}
+                disabled={tracking}
+              />
+              <span className="text-xs text-claude-faint shrink-0">to</span>
+              <input
+                type="date"
+                className="input flex-1"
+                value={untilDate}
+                onChange={e => setUntilDate(e.target.value)}
+                disabled={tracking}
+              />
+            </div>
+          )}
+
+          <p className="text-xs text-claude-faint">
+            {importMode === 'latest' && 'Imports the newest articles not yet in the corpus (up to 5).'}
+            {importMode === 'all' && 'Imports every article in the feed, batch by batch. Each article costs one LLM analysis call — a large archive takes a while and spends credits accordingly.'}
+            {importMode === 'range' && 'Imports articles published inside the range, batch by batch. Leave an end empty for an open range. Articles the feed gives no date for are skipped.'}
+          </p>
+
+          <div className="flex gap-2">
+            <button
+              className="btn-primary flex-1"
+              onClick={autoTrack}
+              disabled={
+                tracking || checking ||
+                (importMode === 'range' && !sinceDate && !untilDate)
+              }
+            >
+              {tracking ? (trackProgress ?? 'Fetching & analyzing...') : 'Import'}
+            </button>
+            <button
+              className="btn-secondary flex-1"
+              onClick={checkForUpdates}
+              disabled={checking || tracking}
+            >
+              {checking ? 'Checking feed...' : 'Check manually'}
+            </button>
+          </div>
         </div>
 
-        {/* Auto-track results */}
+        {/* Import results */}
         {trackResult && (
           <div className="mt-3 card space-y-1.5">
-            {trackResult.error ? (
-              <p className="text-xs text-red-400">{trackResult.error}</p>
-            ) : (
-              <>
-                <p className="label">
-                  Auto-track complete — {trackResult.newFound} new found, {trackResult.ingested.length} imported
-                  {trackResult.skipped > 0 ? `, ${trackResult.skipped} deferred to next run` : ''}
-                </p>
-                {trackResult.ingested.map((r, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs">
-                    <span className={r.success ? 'text-green-400' : 'text-red-400'}>
-                      {r.success ? '✓' : '✗'}
-                    </span>
-                    <span className="text-claude-muted truncate">{r.title}</span>
-                    {r.error && <span className="text-red-400 text-xs">{r.error}</span>}
-                  </div>
-                ))}
-                {trackResult.newFound === 0 && (
-                  <p className="text-xs text-claude-muted">Nothing new since last check.</p>
-                )}
-              </>
-            )}
+            {(() => {
+              const ok = trackResult.imported.filter(r => r.success);
+              const failed = trackResult.imported.filter(r => !r.success);
+              const shown = trackResult.imported.slice(0, 30);
+              return (
+                <>
+                  <p className="label">
+                    Import complete — {ok.length} imported
+                    {failed.length > 0 ? `, ${failed.length} failed` : ''}
+                    {trackResult.remaining > 0 ? `, ${trackResult.remaining} not attempted` : ''}
+                    {trackResult.batches > 1 ? ` (${trackResult.batches} batches)` : ''}
+                  </p>
+                  {trackResult.error && (
+                    <p className="text-xs text-red-400">{trackResult.error}</p>
+                  )}
+                  {trackResult.stoppedOnErrors && (
+                    <p className="text-xs text-red-400">
+                      Stopped: an entire batch failed, so the remaining articles were left alone. Fix the errors below (or just retry) to continue.
+                    </p>
+                  )}
+                  {trackResult.undatedExcluded > 0 && (
+                    <p className="text-xs text-claude-muted">
+                      {trackResult.undatedExcluded} article{trackResult.undatedExcluded > 1 ? 's' : ''} skipped — the feed provides no publish date for them, so they can&apos;t be matched against a date range. Use &quot;Everything&quot; to import them.
+                    </p>
+                  )}
+                  {shown.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className={r.success ? 'text-green-400' : 'text-red-400'}>
+                        {r.success ? '✓' : '✗'}
+                      </span>
+                      <span className="text-claude-muted truncate">{r.title}</span>
+                      {r.error && <span className="text-red-400 text-xs">{r.error}</span>}
+                    </div>
+                  ))}
+                  {trackResult.imported.length > shown.length && (
+                    <p className="text-xs text-claude-faint">
+                      ...and {trackResult.imported.length - shown.length} more
+                    </p>
+                  )}
+                  {trackResult.imported.length === 0 && !trackResult.error && (
+                    <p className="text-xs text-claude-muted">Nothing new matched this import.</p>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 

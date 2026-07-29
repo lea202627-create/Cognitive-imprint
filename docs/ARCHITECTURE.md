@@ -74,6 +74,7 @@ RSS 源 ──────────┤                                       
 - **入口**：`app/api/track/route.ts`。GET 供 Vercel Cron 调用（`vercel.json` 配置为每日 02:00 UTC），遍历全部作者；POST 供作者页"Auto-import new articles"按钮调用（单作者）。
 - **鉴权**：设置了 `CRON_SECRET` 环境变量时，GET 要求 `Authorization: Bearer <CRON_SECRET>`（Vercel Cron 自动携带）；未设置则不校验（本地开发）。
 - **限量**：每作者每轮最多 5 篇、cron 每轮总计最多 8 篇（`lib/tracker.ts` 中的常量），超出部分下一轮自动补上——这是对 Vercel 60s 超时的适配，不是数据截断。
+- **导入范围（作者页）**：三种模式——最新一批 / 整站全部 / 指定时间段。"全部"与"时间段"由前端循环调用 `POST /api/track`（每次一批）直到 `skipped` 归零，从而在不碰 60s 超时的前提下导入任意数量；整批全部失败时停止并显示错误，避免死循环。时间段过滤在 `trackAuthor` 内做（`since`/`until`，含当天），feed 未提供日期的文章无法参与区间匹配，会被排除并计数返回（`undatedExcluded`），可用"全部"模式补齐。
 - **去重**：依赖 `articles.url` / `articles.guid` 唯一约束 + 入库前的集合过滤，同一篇文章不会重复分析。
 - **Recent focus 卡片**：作者页聚合最近 5 篇已分析文章的 `mainTopics`（频次排序）与 `coreClaims`，直接回答"作者这阶段在想什么、产生了哪些判断"；纯前端聚合，不消耗 LLM 调用。`GET /api/articles?withFeatures=1` 为此返回逐篇特征。
 

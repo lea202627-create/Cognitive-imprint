@@ -42,6 +42,7 @@ RSS 源 ──────────┤                                       
 | `lib/export.ts` | 报告转 Markdown | 纯格式化，无业务逻辑 |
 | `lib/schema.ts` / `lib/db.ts` | Drizzle schema 与连接 | schema 变更走 `npm run db:push` |
 | `types/index.ts` | 全部共享类型 | 类型是 LLM JSON 输出的契约，与 analyzer 的 prompt schema 必须同步修改 |
+| `middleware.ts` | 全站 HTTP Basic Auth 门禁 | `BASIC_AUTH_PASSWORD` 未设置则不启用；`GET /api/track` 凭 `Bearer $CRON_SECRET` 单独放行 |
 | `app/api/**` | HTTP 层 | 参数校验 + 调 lib + 返回 JSON，不写业务逻辑 |
 | `app/**/page.tsx` | UI | 客户端组件直接 fetch 内部 API |
 

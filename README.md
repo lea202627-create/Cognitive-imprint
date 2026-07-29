@@ -7,6 +7,12 @@ Extract cognitive patterns from a public author's writing. Ingest articles from 
 
 ---
 
+## Access control
+
+The whole app sits behind HTTP Basic Auth (`middleware.ts`), because every API route either spends OpenRouter credits or can delete data. Set `BASIC_AUTH_PASSWORD` in production; leave it unset locally and the gate is skipped. Vercel Cron reaches `GET /api/track` with `Authorization: Bearer $CRON_SECRET`, which bypasses the gate for that one path only.
+
+---
+
 ## Governance docs
 
 - [docs/CONSTITUTION.md](docs/CONSTITUTION.md) — 项目宪法：设计理念（工具为何存在）、分析伦理红线、工程原则、演进路线
@@ -47,6 +53,8 @@ Copy `.env.example` to `.env.local` and fill in the two required values:
 | `OPENROUTER_MODEL` | no | Model id to use. Defaults to `anthropic/claude-sonnet-4` |
 | `OPENROUTER_SITE_URL` | no | Your deployed URL, sent to OpenRouter as attribution |
 | `CRON_SECRET` | no | Protects the auto-tracking endpoint `GET /api/track`; on Vercel, set it and Vercel Cron sends it automatically |
+| `BASIC_AUTH_PASSWORD` | **yes in production** | Enables the HTTP Basic Auth gate (`middleware.ts`). Leave empty locally to skip the login prompt |
+| `BASIC_AUTH_USER` | no | Username for the gate. Defaults to `admin` |
 
 ### Getting DATABASE_URL (Supabase)
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) and create a project
@@ -135,7 +143,8 @@ git push -u origin main
    - `DATABASE_URL` — your Supabase transaction-pooler connection string
    - `OPENROUTER_API_KEY` — your OpenRouter key
    - `CRON_SECRET` — any random string, so only Vercel Cron can trigger auto-tracking
-   - `OPENROUTER_MODEL` / `OPENROUTER_SITE_URL` — optional
+   - `BASIC_AUTH_PASSWORD` — **required.** Without it the deployment is wide open: anyone who finds the URL can spend your OpenRouter credits and delete your data
+   - `OPENROUTER_MODEL` / `OPENROUTER_SITE_URL` / `BASIC_AUTH_USER` — optional
 
 ### Step 3 — Deploy
 Click **Deploy**. Vercel builds and deploys automatically.

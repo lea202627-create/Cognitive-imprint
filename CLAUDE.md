@@ -31,6 +31,10 @@ npm run db:studio  # Drizzle Studio (localhost:4983)
 8. 数据源只限作者公开发布的内容；不做风格模仿、不做私人心理画像（宪法明确排除项）。
 9. **本项目是 Next.js 14**：动态路由的 `params` 是普通对象，直接 `params.id` 取值。不要用 Next 15 的 `params: Promise<...>` + `use(params)` 写法——那会在运行时抛 "An unsupported type was passed to use()"，且 `npm run build` 检查不出来（只有真正访问页面才暴露）。
 
+## 访问控制
+
+`middleware.ts` 对全站做 HTTP Basic Auth。`BASIC_AUTH_PASSWORD` 未设置时不启用（本地开发无感），生产环境**必须设置**——所有 API 都能花钱（ingest/analyze 调 LLM）或毁数据（`DELETE /api/authors`）。`GET /api/track` 带正确 `Bearer $CRON_SECRET` 时绕过 basic auth（Vercel Cron 发不了 basic 凭据），且该绕过只对这一个路径生效。新增可被外部调用的路由时不要绕开 middleware。
+
 ## Feed 解析
 
 `lib/fetcher.ts` 的 `parseFeed` 支持 RSS 2.0、RSS 1.0/RDF（`<item>` 带属性、`dc:date`）和 Atom（`<entry>`、href 属性取链接、优先 `rel="alternate"`、`published` 缺失时回落 `updated`）。喂进非 feed 的 URL 会**显式抛错**，不静默返回"没有新文章"。

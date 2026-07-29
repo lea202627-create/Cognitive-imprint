@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authors, articles, imprintReports } from '@/lib/schema';
 import { eq, count, max } from 'drizzle-orm';
+import { resolveFeedUrl } from '@/lib/fetcher';
 
 export async function DELETE(req: Request) {
   try {
@@ -69,18 +70,32 @@ export async function POST(req: Request) {
     const { name, feedUrl, siteUrl, description } = body;
 
     if (!name || !feedUrl) {
-      return NextResponse.json({ error: 'name and feedUrl required' }, { status: 400 });
+      return NextResponse.json({ error: 'name and a URL are required' }, { status: 400 });
+    }
+
+    // The input may be a feed URL or just the site's address — resolve either.
+    let resolved;
+    try {
+      resolved = await resolveFeedUrl(feedUrl);
+    } catch (e) {
+      return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 400 });
     }
 
     const [author] = await db
       .insert(authors)
-      .values({ name, feedUrl, siteUrl, description })
+      .values({
+        name,
+        feedUrl: resolved.feedUrl,
+        siteUrl: siteUrl || resolved.siteUrl,
+        description,
+      })
       .returning();
 
     return NextResponse.json({
       ...author,
       createdAt: author.createdAt.toISOString(),
       lastChecked: null,
+      discoveredFeed: resolved.discovered,
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

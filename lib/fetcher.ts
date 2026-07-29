@@ -114,6 +114,118 @@ function decodeEntities(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
+// ─── Feed discovery ────────────────────────────────────────────────────────
+// Most people know a writer's site, not their feed URL. Given either one,
+// work out the feed: try the input directly, then <link rel="alternate">
+// in the page head, then the conventional paths.
+
+const COMMON_FEED_PATHS = [
+  '/feed',
+  '/rss',
+  '/atom.xml',
+  '/feed.xml',
+  '/rss.xml',
+  '/index.xml',
+  '/feed/',
+  '/blog/feed',
+];
+
+export interface ResolvedFeed {
+  feedUrl: string;
+  siteUrl: string;
+  /** false when the input was already a feed */
+  discovered: boolean;
+}
+
+export function normalizeUrl(input: string): string {
+  const trimmed = input.trim();
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return new URL(withScheme).toString();
+}
+
+async function isFeed(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'CognitiveImprint/1.0' },
+      signal: AbortSignal.timeout(8000),
+      next: { revalidate: 0 },
+    });
+    if (!res.ok) return false;
+    return parseFeed(await res.text()).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// <link rel="alternate" type="application/rss+xml" href="..."> in the page head.
+export function extractFeedLinks(html: string, baseUrl: string): string[] {
+  const out: string[] = [];
+
+  for (const m of html.matchAll(/<link\b([^>]*)>/gi)) {
+    const attrs = m[1];
+    const rel = attrs.match(/\brel\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
+    const type = attrs.match(/\btype\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
+    const href = attrs.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+
+    if (!href || !rel?.includes('alternate')) continue;
+    if (!type || !/(rss|atom)\+xml|application\/xml|text\/xml/.test(type)) continue;
+
+    try {
+      out.push(new URL(href.replace(/&amp;/g, '&'), baseUrl).toString());
+    } catch {
+      // Skip unparseable hrefs.
+    }
+  }
+
+  return [...new Set(out)];
+}
+
+export async function resolveFeedUrl(input: string): Promise<ResolvedFeed> {
+  const url = normalizeUrl(input);
+
+  // 1. Already a feed?
+  if (await isFeed(url)) {
+    return { feedUrl: url, siteUrl: new URL(url).origin, discovered: false };
+  }
+
+  // 2. Declared in the page head.
+  let html = '';
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'CognitiveImprint/1.0' },
+      signal: AbortSignal.timeout(10000),
+      next: { revalidate: 0 },
+    });
+    if (res.ok) html = await res.text();
+  } catch {
+    // Unreachable page — fall through to the conventional paths.
+  }
+
+  for (const candidate of extractFeedLinks(html, url).slice(0, 4)) {
+    if (await isFeed(candidate)) {
+      return { feedUrl: candidate, siteUrl: url, discovered: true };
+    }
+  }
+
+  // 3. Conventional locations.
+  for (const path of COMMON_FEED_PATHS) {
+    let candidate: string;
+    try {
+      candidate = new URL(path, url).toString();
+    } catch {
+      continue;
+    }
+    if (await isFeed(candidate)) {
+      return { feedUrl: candidate, siteUrl: url, discovered: true };
+    }
+  }
+
+  throw new Error(
+    `Could not find a feed for ${url}. Tried the page's <link rel="alternate"> tags and ` +
+      `${COMMON_FEED_PATHS.join(', ')}. If you know the feed address, paste it directly.`
+  );
+}
+
 export async function fetchArticleText(url: string): Promise<string> {
   const res = await fetch(url, {
     headers: { 'User-Agent': 'CognitiveImprint/1.0' },

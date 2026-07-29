@@ -11,6 +11,7 @@ export default function HomePage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', feedUrl: '', siteUrl: '', description: '' });
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -45,17 +46,23 @@ export default function HomePage() {
   async function addAuthor() {
     if (!form.name || !form.feedUrl) return;
     setAdding(true);
+    setAddError(null);
     try {
       const res = await fetch('/api/authors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      if (res.ok) {
-        setForm({ name: '', feedUrl: '', siteUrl: '', description: '' });
-        setShowAdd(false);
-        fetchAuthors();
+      const data = await res.json();
+      if (!res.ok) {
+        setAddError(data.error ?? `Request failed (${res.status})`);
+        return;
       }
+      setForm({ name: '', feedUrl: '', siteUrl: '', description: '' });
+      setShowAdd(false);
+      fetchAuthors();
+    } catch (e) {
+      setAddError(String(e));
     } finally {
       setAdding(false);
     }
@@ -138,16 +145,13 @@ export default function HomePage() {
             />
             <input
               className="input"
-              placeholder="RSS Feed URL"
+              placeholder="Website or RSS URL — e.g. paulgraham.com"
               value={form.feedUrl}
               onChange={e => setForm(f => ({ ...f, feedUrl: e.target.value }))}
             />
-            <input
-              className="input"
-              placeholder="Site URL (optional)"
-              value={form.siteUrl}
-              onChange={e => setForm(f => ({ ...f, siteUrl: e.target.value }))}
-            />
+            <p className="text-xs text-claude-faint -mt-1">
+              Paste the site address and the feed is found automatically. A direct feed URL works too.
+            </p>
             <input
               className="input"
               placeholder="Description (optional)"
@@ -155,11 +159,14 @@ export default function HomePage() {
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
             />
           </div>
+          {addError && (
+            <p className="text-xs text-red-400 leading-relaxed">{addError}</p>
+          )}
           <div className="flex gap-2">
             <button className="btn-primary" onClick={addAuthor} disabled={adding || !form.name || !form.feedUrl}>
-              {adding ? 'Adding...' : 'Add'}
+              {adding ? 'Finding feed...' : 'Add'}
             </button>
-            <button className="btn-secondary" onClick={() => setShowAdd(false)}>
+            <button className="btn-secondary" onClick={() => { setShowAdd(false); setAddError(null); }}>
               Cancel
             </button>
           </div>

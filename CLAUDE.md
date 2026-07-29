@@ -37,6 +37,8 @@ npm run db:studio  # Drizzle Studio (localhost:4983)
 
 ## Feed 解析
 
+添加作者时只需填**网站地址**，`resolveFeedUrl` 会自动发现 feed：先试输入本身是不是 feed，再读页面 `<link rel="alternate">`，最后试 `/feed`、`/rss`、`/atom.xml` 等常见路径；全部失败会报出试过哪些地址。
+
 `lib/fetcher.ts` 的 `parseFeed` 支持 RSS 2.0、RSS 1.0/RDF（`<item>` 带属性、`dc:date`）和 Atom（`<entry>`、href 属性取链接、优先 `rel="alternate"`、`published` 缺失时回落 `updated`）。喂进非 feed 的 URL 会**显式抛错**，不静默返回"没有新文章"。
 
 ## 已知限制

@@ -24,7 +24,7 @@ The whole app sits behind HTTP Basic Auth (`middleware.ts`), because every API r
 
 ## What it does
 
-1. You add an author with their feed URL (RSS 2.0, RSS 1.0/RDF, or Atom)
+1. You add an author by pasting their **website address** — the feed is discovered automatically (a direct RSS/RDF/Atom URL works too)
 2. New articles are picked up automatically — a daily cron (or the one-click **Auto-import** button) fetches, cleans, and analyzes each new article with Claude; a manual check-and-select flow also exists as a fallback
 3. The author page shows a **Recent focus** card — what the author has been thinking about lately (topics + core claims from the latest analyzed articles)
 4. You can generate a Cognitive Imprint report at any time — a versioned snapshot of the author's cognitive patterns across the full corpus
@@ -213,7 +213,7 @@ cognitive-imprint/
 
 ## User flow
 
-1. Open `/` → Add author (name, feed URL, optional site URL + description). RSS 2.0, RSS 1.0/RDF, and Atom feeds all work; a URL that isn't a feed returns a clear error rather than silently finding nothing.
+1. Open `/` → Add author (name + website address). You do not need to know the feed URL: the site's `<link rel="alternate">` tags and the conventional feed paths are checked automatically. RSS 2.0, RSS 1.0/RDF and Atom are all supported, and a site with no feed at all returns a clear error listing what was tried.
 2. Click author → Author detail page
 3. Click **Auto-import new articles** → system checks RSS and automatically fetches + analyzes everything new (up to 5 per run). Or use **Check manually** to pick articles yourself. In production, a daily cron does the auto-import for all authors without any clicks.
 4. The **Recent focus** card at the top of the author page updates as articles come in — recent topics and core claims, i.e. what the author is thinking about lately

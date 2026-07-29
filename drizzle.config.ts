@@ -1,4 +1,8 @@
 import type { Config } from 'drizzle-kit';
+import { loadEnvConfig } from '@next/env';
+
+// drizzle-kit runs outside Next, so .env.local is not loaded automatically.
+loadEnvConfig(process.cwd());
 
 export default {
   schema: './lib/schema.ts',

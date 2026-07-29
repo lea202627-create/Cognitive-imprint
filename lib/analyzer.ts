@@ -1,8 +1,67 @@
 // lib/analyzer.ts
-import Anthropic from '@anthropic-ai/sdk';
 import { DocumentFeatures, ImprintReport, Article } from '@/types';
 
-const client = new Anthropic();
+// ─── LLM transport (OpenRouter) ─────────────────────────────────────────────
+// The model id lives here and nowhere else. Override with OPENROUTER_MODEL to
+// point at any model OpenRouter serves (e.g. openai/gpt-4o, google/gemini-2.5-pro).
+
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const MODEL = process.env.OPENROUTER_MODEL ?? 'anthropic/claude-sonnet-4';
+
+async function callModel(prompt: string, maxTokens: number): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY is not set');
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      // Optional attribution headers used by OpenRouter's dashboard/rankings.
+      'HTTP-Referer': process.env.OPENROUTER_SITE_URL ?? 'http://localhost:3000',
+      'X-Title': 'Cognitive Imprint',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`OpenRouter request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  // OpenRouter can return a 200 with an error payload.
+  if (data.error) {
+    throw new Error(`OpenRouter error: ${JSON.stringify(data.error).slice(0, 300)}`);
+  }
+
+  const text = data.choices?.[0]?.message?.content;
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error(`OpenRouter returned no content: ${JSON.stringify(data).slice(0, 300)}`);
+  }
+
+  return text;
+}
+
+function parseJsonResponse<T>(raw: string, label: string): T {
+  // Models sometimes wrap JSON in a markdown fence or add a preamble.
+  let clean = raw.replace(/```(?:json)?/gi, '').trim();
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start > 0 || (end !== -1 && end < clean.length - 1)) {
+    clean = clean.slice(start, end + 1);
+  }
+
+  try {
+    return JSON.parse(clean) as T;
+  } catch {
+    throw new Error(`Failed to parse ${label}: ${clean.slice(0, 200)}`);
+  }
+}
 
 // ─── Per-document extraction ───────────────────────────────────────────────
 
@@ -47,23 +106,19 @@ Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
 
 For notableExcerpts: pick 2-4 verbatim short phrases (under 20 words each) that best illustrate the author's cognitive habits.`;
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1500,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const raw = (response.content[0] as { type: string; text: string }).text;
-  const clean = raw.replace(/```json|```/g, '').trim();
-
-  try {
-    return JSON.parse(clean) as DocumentFeatures;
-  } catch {
-    throw new Error(`Failed to parse document features: ${clean.slice(0, 200)}`);
-  }
+  const raw = await callModel(prompt, 1500);
+  return parseJsonResponse<DocumentFeatures>(raw, 'document features');
 }
 
 // ─── Corpus-level aggregation ──────────────────────────────────────────────
+
+// The fields the model produces; the rest are computed from the corpus itself.
+type ModelAuthoredReport = Omit<
+  ImprintReport,
+  | 'id' | 'authorId' | 'generatedAt'
+  | 'documentCount' | 'totalWordCount' | 'dateRange'
+  | 'confidence' | 'confidenceNote'
+>;
 
 export async function generateImprintReport(
   authorName: string,
@@ -191,21 +246,8 @@ Return ONLY valid JSON (no markdown, no explanation):
   }
 }`;
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const raw = (response.content[0] as { type: string; text: string }).text;
-  const clean = raw.replace(/```json|```/g, '').trim();
-
-  let parsed;
-  try {
-    parsed = JSON.parse(clean);
-  } catch {
-    throw new Error(`Failed to parse imprint report: ${clean.slice(0, 200)}`);
-  }
+  const raw = await callModel(prompt, 4000);
+  const parsed = parseJsonResponse<ModelAuthoredReport>(raw, 'imprint report');
 
   return {
     ...parsed,

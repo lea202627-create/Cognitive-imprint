@@ -10,6 +10,8 @@ export async function GET(req: Request) {
     const authorId = searchParams.get('authorId');
     if (!authorId) return NextResponse.json({ error: 'authorId required' }, { status: 400 });
 
+    const withFeatures = searchParams.get('withFeatures') === '1';
+
     const rows = await db
       .select({
         id: articles.id,
@@ -19,7 +21,7 @@ export async function GET(req: Request) {
         publishedAt: articles.publishedAt,
         fetchedAt: articles.fetchedAt,
         wordCount: articles.wordCount,
-        hasFeatures: articles.extractedFeatures,
+        extractedFeatures: articles.extractedFeatures,
       })
       .from(articles)
       .where(eq(articles.authorId, Number(authorId)))
@@ -27,10 +29,15 @@ export async function GET(req: Request) {
 
     return NextResponse.json(
       rows.map(r => ({
-        ...r,
+        id: r.id,
+        authorId: r.authorId,
+        title: r.title,
+        url: r.url,
         publishedAt: r.publishedAt?.toISOString() ?? null,
         fetchedAt: r.fetchedAt.toISOString(),
-        hasFeatures: r.hasFeatures !== null,
+        wordCount: r.wordCount,
+        hasFeatures: r.extractedFeatures !== null,
+        ...(withFeatures ? { extractedFeatures: r.extractedFeatures } : {}),
       }))
     );
   } catch (e) {

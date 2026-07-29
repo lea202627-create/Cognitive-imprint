@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect } from 'react';
 import { Author, Article, NewArticle } from '@/types';
 import Link from 'next/link';
 import { formatDistanceToNow, format } from 'date-fns';
 
-export default function AuthorPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-  const authorId = Number(id);
+export default function AuthorPage({ params }: { params: { id: string } }) {
+  const authorId = Number(params.id);
 
   const [author, setAuthor] = useState<Author | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -26,6 +25,15 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
+  // Auto-track state
+  const [tracking, setTracking] = useState(false);
+  const [trackResult, setTrackResult] = useState<{
+    newFound: number;
+    ingested: { title: string; success: boolean; error?: string }[];
+    skipped: number;
+    error?: string;
+  } | null>(null);
+
   useEffect(() => {
     loadAll();
   }, [authorId]);
@@ -35,7 +43,7 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
     try {
       const [authRes, artRes] = await Promise.all([
         fetch('/api/authors'),
-        fetch(`/api/articles?authorId=${authorId}`),
+        fetch(`/api/articles?authorId=${authorId}&withFeatures=1`),
       ]);
       const authList: Author[] = await authRes.json();
       const artList: Article[] = await artRes.json();
@@ -92,6 +100,28 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
       await loadAll();
     } finally {
       setIngesting(false);
+    }
+  }
+
+  async function autoTrack() {
+    setTracking(true);
+    setTrackResult(null);
+    setNewItems(null);
+    setIngestResults(null);
+    try {
+      const res = await fetch('/api/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authorId }),
+      });
+      const data = await res.json();
+      if (data.error && !data.ingested) throw new Error(data.error);
+      setTrackResult(data);
+      await loadAll();
+    } catch (e) {
+      setTrackResult({ newFound: 0, ingested: [], skipped: 0, error: String(e) });
+    } finally {
+      setTracking(false);
     }
   }
 
@@ -186,15 +216,97 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
         )}
       </div>
 
+      {/* Recent focus — what the author is thinking about lately */}
+      {(() => {
+        const recent = articles.filter(a => a.extractedFeatures).slice(0, 5);
+        if (recent.length === 0) return null;
+        const topicCounts = new Map<string, number>();
+        for (const a of recent) {
+          for (const t of a.extractedFeatures!.mainTopics ?? []) {
+            topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1);
+          }
+        }
+        const topics = [...topicCounts.entries()]
+          .sort((x, y) => y[1] - x[1])
+          .slice(0, 8);
+        const claims = recent
+          .flatMap(a => (a.extractedFeatures!.coreClaims ?? []).slice(0, 2).map(c => ({ c, title: a.title })))
+          .slice(0, 6);
+        return (
+          <div className="card mb-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="label">Recent focus</p>
+              <span className="text-xs text-claude-faint">last {recent.length} analyzed articles</span>
+            </div>
+            {topics.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {topics.map(([t, n]) => (
+                  <span key={t} className="text-xs bg-claude-hover text-claude-text px-2 py-0.5 rounded">
+                    {t}{n > 1 ? ` ×${n}` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+            {claims.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-claude-faint">Recent judgments & claims</p>
+                {claims.map((item, i) => (
+                  <p key={i} className="text-xs text-claude-muted leading-relaxed">
+                    <span className="text-claude-accent">·</span> {item.c}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Check for updates */}
       <div className="mb-6">
-        <button
-          className="btn-secondary w-full"
-          onClick={checkForUpdates}
-          disabled={checking}
-        >
-          {checking ? 'Checking feed...' : 'Check for new articles'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-primary flex-1"
+            onClick={autoTrack}
+            disabled={tracking || checking}
+          >
+            {tracking ? 'Tracking: fetching & analyzing...' : 'Auto-import new articles'}
+          </button>
+          <button
+            className="btn-secondary flex-1"
+            onClick={checkForUpdates}
+            disabled={checking || tracking}
+          >
+            {checking ? 'Checking feed...' : 'Check manually'}
+          </button>
+        </div>
+
+        {/* Auto-track results */}
+        {trackResult && (
+          <div className="mt-3 card space-y-1.5">
+            {trackResult.error ? (
+              <p className="text-xs text-red-400">{trackResult.error}</p>
+            ) : (
+              <>
+                <p className="label">
+                  Auto-track complete — {trackResult.newFound} new found, {trackResult.ingested.length} imported
+                  {trackResult.skipped > 0 ? `, ${trackResult.skipped} deferred to next run` : ''}
+                </p>
+                {trackResult.ingested.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className={r.success ? 'text-green-400' : 'text-red-400'}>
+                      {r.success ? '✓' : '✗'}
+                    </span>
+                    <span className="text-claude-muted truncate">{r.title}</span>
+                    {r.error && <span className="text-red-400 text-xs">{r.error}</span>}
+                  </div>
+                ))}
+                {trackResult.newFound === 0 && (
+                  <p className="text-xs text-claude-muted">Nothing new since last check.</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* New items found */}
         {newItems !== null && newItems.length === 0 && (

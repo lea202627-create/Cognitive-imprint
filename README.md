@@ -7,11 +7,20 @@ Extract cognitive patterns from a public author's writing. Ingest articles from 
 
 ---
 
+## Governance docs
+
+- [docs/CONSTITUTION.md](docs/CONSTITUTION.md) — 项目宪法：设计理念（工具为何存在）、分析伦理红线、工程原则、演进路线
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 当前架构、两段式分析管道、数据模型
+- [docs/ENGINEERING.md](docs/ENGINEERING.md) — 开发规范与合入前验证清单
+- [CLAUDE.md](CLAUDE.md) — AI 协作者的工程入口（硬性规则速查）
+
+---
+
 ## What it does
 
-1. You add an author with their RSS feed URL
-2. You manually check for new articles and choose which ones to import
-3. Each article is fetched, cleaned, and analyzed by Claude
+1. You add an author with their feed URL (RSS 2.0, RSS 1.0/RDF, or Atom)
+2. New articles are picked up automatically — a daily cron (or the one-click **Auto-import** button) fetches, cleans, and analyzes each new article with Claude; a manual check-and-select flow also exists as a fallback
+3. The author page shows a **Recent focus** card — what the author has been thinking about lately (topics + core claims from the latest analyzed articles)
 4. You can generate a Cognitive Imprint report at any time — a versioned snapshot of the author's cognitive patterns across the full corpus
 5. Reports can be exported as Markdown
 
@@ -22,31 +31,36 @@ Extract cognitive patterns from a public author's writing. Ingest articles from 
 - **Next.js 14** (App Router)
 - **TypeScript**
 - **Tailwind CSS**
-- **Drizzle ORM** + **Neon Postgres**
-- **Anthropic Claude** (claude-sonnet-4-20250514)
+- **Drizzle ORM** + **Supabase Postgres** (via `postgres.js`)
+- **OpenRouter** for LLM calls (default model `anthropic/claude-sonnet-4`, swappable)
 
 ---
 
 ## Environment variables
 
-Copy `.env.example` to `.env.local` and fill in both values:
+Copy `.env.example` to `.env.local` and fill in the two required values:
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | Neon Postgres connection string (with `?sslmode=require`) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (starts with `sk-ant-`) |
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | yes | Supabase Postgres connection string — use the **Transaction pooler** URI (port 6543) |
+| `OPENROUTER_API_KEY` | yes | OpenRouter API key (starts with `sk-or-v1-`) |
+| `OPENROUTER_MODEL` | no | Model id to use. Defaults to `anthropic/claude-sonnet-4` |
+| `OPENROUTER_SITE_URL` | no | Your deployed URL, sent to OpenRouter as attribution |
+| `CRON_SECRET` | no | Protects the auto-tracking endpoint `GET /api/track`; on Vercel, set it and Vercel Cron sends it automatically |
 
-### Getting DATABASE_URL
-1. Go to [console.neon.tech](https://console.neon.tech)
-2. Create a new project
-3. Go to **Connection Details**
-4. Copy the connection string — it should look like:  
-   `postgresql://user:password@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require`
+### Getting DATABASE_URL (Supabase)
+1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) and create a project
+2. Click **Connect** in the top bar
+3. Under **Transaction pooler**, copy the URI (port **6543**) — it looks like:  
+   `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`
+4. Replace `[YOUR-PASSWORD]` with your database password
 
-### Getting ANTHROPIC_API_KEY
-1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Go to **API Keys**
-3. Create a new key
+> Use the **transaction pooler** (6543), not the direct connection (5432). Serverless functions open many short-lived connections; the pooler is built for that, and `lib/db.ts` disables prepared statements accordingly.
+
+### Getting OPENROUTER_API_KEY
+1. Go to [openrouter.ai/keys](https://openrouter.ai/keys)
+2. Create a new key and add credits to your account
+3. To use a different model, set `OPENROUTER_MODEL` to any id from [openrouter.ai/models](https://openrouter.ai/models) (e.g. `openai/gpt-4o`, `google/gemini-2.5-pro`)
 
 ---
 
@@ -60,7 +74,7 @@ npm install
 
 # 2. Set up environment
 cp .env.example .env.local
-# Fill in DATABASE_URL and ANTHROPIC_API_KEY
+# Fill in DATABASE_URL and OPENROUTER_API_KEY
 
 # 3. Run database migration
 npm run db:push
@@ -75,13 +89,15 @@ App runs at `http://localhost:3000`
 
 ## Database migration
 
-Drizzle pushes schema directly to Neon. No migration files needed for MVP.
+Drizzle pushes schema directly to Supabase. No migration files needed for MVP.
 
 ```bash
 npm run db:push
 ```
 
-This creates three tables: `authors`, `articles`, `imprint_reports`.
+This creates three tables: `authors`, `articles`, `imprint_reports`. They appear in the Supabase dashboard under **Table Editor**.
+
+`drizzle.config.ts` loads `.env.local` automatically, so no extra env setup is needed for this command.
 
 To inspect data:
 ```bash
@@ -116,8 +132,10 @@ git push -u origin main
 2. Import your GitHub repo
 3. Framework preset: **Next.js** (auto-detected)
 4. Add environment variables:
-   - `DATABASE_URL` — your Neon connection string
-   - `ANTHROPIC_API_KEY` — your Anthropic key
+   - `DATABASE_URL` — your Supabase transaction-pooler connection string
+   - `OPENROUTER_API_KEY` — your OpenRouter key
+   - `CRON_SECRET` — any random string, so only Vercel Cron can trigger auto-tracking
+   - `OPENROUTER_MODEL` / `OPENROUTER_SITE_URL` — optional
 
 ### Step 3 — Deploy
 Click **Deploy**. Vercel builds and deploys automatically.
@@ -132,8 +150,9 @@ This only needs to run once (or after schema changes).
 ### Notes on Vercel serverless limits
 - Hobby plan: 60s function timeout
 - Ingesting many articles at once may approach this limit
-- If timeout errors occur: import articles in smaller batches (3–5 at a time)
+- If timeout errors occur: import articles in smaller batches (3–5 at a time). Auto-tracking already caps itself at 5 articles per author and 8 per cron run
 - Generating the imprint report (single LLM call) should complete within the limit for corpora under 30 articles
+- Always use the Supabase **transaction pooler** URI here — the direct connection (5432) exhausts its connection limit under serverless
 
 ---
 
@@ -149,9 +168,11 @@ cognitive-imprint/
 │       ├── authors/
 │       │   └── route.ts        # GET all authors, POST new author
 │       ├── articles/
-│       │   ├── route.ts        # GET articles by authorId
+│       │   ├── route.ts        # GET articles by authorId (optionally with features)
 │       │   ├── check/route.ts  # POST: check RSS for new items
 │       │   └── ingest/route.ts # POST: fetch + analyze selected articles
+│       ├── track/
+│       │   └── route.ts        # GET: cron auto-tracking (all authors), POST: one author
 │       └── analyze/
 │           ├── route.ts        # POST: generate imprint, GET: list reports
 │           └── export/route.ts # GET: export report as Markdown
@@ -161,14 +182,16 @@ cognitive-imprint/
 │           └── report/
 │               └── page.tsx    # Imprint report viewer + export
 ├── lib/
-│   ├── db.ts                   # Drizzle + Neon connection
+│   ├── db.ts                   # Drizzle + Supabase (postgres.js) connection
 │   ├── schema.ts               # Database schema
-│   ├── fetcher.ts              # RSS parser + article text extractor
+│   ├── fetcher.ts              # Feed parser (RSS/RDF/Atom) + article text extractor
 │   ├── analyzer.ts             # LLM pipeline: per-doc + corpus analysis
+│   ├── tracker.ts              # Auto-tracking: check feed → dedupe → ingest + analyze
 │   └── export.ts               # Markdown export
 ├── types/
 │   └── index.ts                # All TypeScript types
 ├── drizzle.config.ts
+├── vercel.json                 # Daily cron → /api/track
 ├── next.config.js
 ├── tailwind.config.ts
 ├── tsconfig.json
@@ -181,14 +204,24 @@ cognitive-imprint/
 
 ## User flow
 
-1. Open `/` → Add author (name, RSS feed URL, optional site URL + description)
+1. Open `/` → Add author (name, feed URL, optional site URL + description). RSS 2.0, RSS 1.0/RDF, and Atom feeds all work; a URL that isn't a feed returns a clear error rather than silently finding nothing.
 2. Click author → Author detail page
-3. Click **Check for new articles** → system checks RSS, shows new items
-4. Select articles to import → click **Import**
-5. Each article is fetched and analyzed (takes ~5–15 seconds per article)
-6. When corpus is ready → click **Generate imprint**
-7. Report opens at `/authors/[id]/report`
-8. Export as Markdown from the report page
+3. Click **Auto-import new articles** → system checks RSS and automatically fetches + analyzes everything new (up to 5 per run). Or use **Check manually** to pick articles yourself. In production, a daily cron does the auto-import for all authors without any clicks.
+4. The **Recent focus** card at the top of the author page updates as articles come in — recent topics and core claims, i.e. what the author is thinking about lately
+5. When corpus is ready → click **Generate imprint**
+6. Report opens at `/authors/[id]/report`
+7. Export as Markdown from the report page
+
+## Auto-tracking
+
+- **Vercel Cron** (configured in `vercel.json`) calls `GET /api/track` daily at 02:00 UTC: every author's feed is checked, new articles are deduped (by URL/GUID), fetched, analyzed, and stored — capped at 5 articles per author and 8 per run to stay inside the 60s serverless limit; the remainder is picked up on the next run.
+- **Manual trigger**: the **Auto-import new articles** button on the author page runs the same pipeline for one author, or hit the endpoint directly:
+
+```bash
+curl -X POST http://localhost:3000/api/track -H 'Content-Type: application/json' -d '{"authorId": 1}'
+```
+
+- Set `CRON_SECRET` in production to prevent strangers from triggering the cron endpoint.
 
 ---
 
@@ -196,14 +229,16 @@ cognitive-imprint/
 
 **In scope:**
 - Single-author corpus analysis
-- Manual article import from RSS
+- Auto-tracking: daily scheduled fetch + one-click auto-import (v1.1)
+- Recent focus view: what the author is thinking about lately (v1.1)
+- Manual article import from RSS (fallback path)
 - Per-document cognitive feature extraction
 - Corpus-level imprint report generation
 - Versioned reports (each generation saved separately)
 - Markdown export
 
-**Out of scope for v1.0:**
-- Auto-crawling / scheduled fetch
+**Out of scope (see docs/CONSTITUTION.md for the roadmap):**
 - Multi-author comparison
-- Real-time monitoring
-- Writing style imitation
+- Cognitive trajectory diff between report versions (planned v2.x)
+- X/Twitter as a source (future; RSS-bridged sources work today)
+- Writing style imitation (permanently excluded)

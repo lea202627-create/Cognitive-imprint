@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect } from 'react';
 import { ImprintReport, Author } from '@/types';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -55,9 +55,8 @@ function Evidence({ excerpts }: { excerpts?: string[] }) {
   );
 }
 
-export default function ReportPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-  const authorId = Number(id);
+export default function ReportPage({ params }: { params: { id: string } }) {
+  const authorId = Number(params.id);
 
   const [author, setAuthor] = useState<Author | null>(null);
   const [reports, setReports] = useState<ImprintReport[]>([]);
